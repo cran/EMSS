@@ -794,7 +794,9 @@ coef.EMSS <- function(object, only = NULL, ...)
       names_response <- object$names_response
       names_selection <- object$names_selection
       result <- list( response = drop(object$estimate_response),
-                      selection = drop(object$estimate_selection)
+                      selection = drop(object$estimate_selection),
+                      sigma = drop(object$estimate_sigma), # 2020/05/31 fixed
+                      rho = drop(object$estimate_rho) # 2020/05/31 fixed
       )
       names(result$response) <- names_response
       names(result$selection) <- names_selection
