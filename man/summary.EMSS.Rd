@@ -7,8 +7,7 @@
 \usage{
 \method{summary}{EMSS}(object, ...)
 
-\method{print}{summary.EMSS}(x, digits = max(3, getOption("digits") - 3),
-  ...)
+\method{print}{summary.EMSS}(x, digits = max(3, getOption("digits") - 3), ...)
 }
 \arguments{
 \item{object}{an object of class "EMSS" made by the function \code{EMSS}.}

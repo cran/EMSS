@@ -4,7 +4,8 @@
 \name{Smoke}
 \alias{Smoke}
 \title{Survey Data on Smoking Behaviour}
-\format{a dataframe with 807 observations and 8 variables as below:
+\format{
+a dataframe with 807 observations and 8 variables as below:
 \describe{
 \item{educ}{years of schooling (numeric)}
 \item{age}{age of respondents (numeric)}
@@ -14,7 +15,8 @@
 \item{smoker}{smoked at least once or not (categorical)}
 \item{cigs_intervals}{number of cigarettes smoked per day, with interval boundaries: 0,5,10,20,50 (numeric)}
 \item{cigs}{number of cigarettes smoked per day (numeric)}
-}}
+}
+}
 \source{
 Wooldridge's dataset is available on \url{https://ideas.repec.org/p/boc/bocins/smoke.html#biblio}.
 }

@@ -4,8 +4,14 @@
 \alias{EMSS}
 \title{EM type Estimation Methods for the Heckman's Sample Selection Model}
 \usage{
-EMSS(response, selection, data, method = "ECM", initial.param = NULL,
-  eps = 10^(-10))
+EMSS(
+  response,
+  selection,
+  data,
+  method = "ECM",
+  initial.param = NULL,
+  eps = 10^(-10)
+)
 }
 \arguments{
 \item{response}{a formula for the response equation.}
