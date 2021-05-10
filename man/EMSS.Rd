@@ -55,7 +55,7 @@ Maximization with Newton-Raphson, and \code{"ECME"} for Expectation/Conditional 
 \details{
 The dependent variable of the selection equation (specified by argument selection) must have exactly
 two levels (e.g., 'FALSE' and 'TRUE', or '0' and '1'). The default argument method is "ECM" and the
-default start values ("NULL") are obtained by two-step estimation of this model through the commend
+default start values ("NULL") are obtained by two-step estimation of this model through the command
 \code{selection} from the package \code{sampleSelection}. NA's are allowed in the data. These are
 ignored if the corresponding outcome is unobserved, otherwise observations which contain NA
 (either in selection or outcome) are changed to 0.

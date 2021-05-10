@@ -8,7 +8,7 @@
 #' @details
 #' The dependent variable of the selection equation (specified by argument selection) must have exactly
 #' two levels (e.g., 'FALSE' and 'TRUE', or '0' and '1'). The default argument method is "ECM" and the
-#' default start values ("NULL") are obtained by two-step estimation of this model through the commend
+#' default start values ("NULL") are obtained by two-step estimation of this model through the command
 #' \code{selection} from the package \code{sampleSelection}. NA's are allowed in the data. These are
 #' ignored if the corresponding outcome is unobserved, otherwise observations which contain NA
 #' (either in selection or outcome) are changed to 0.
@@ -87,6 +87,11 @@ EMSS <- function(response, selection, data, method="ECM",
                  initial.param = NULL,
                  eps = 10^(-10))
 {
+  if(method!="ECM" & method!="ECMnr" & method!="ECME"){
+    message("Warning: Wrong maximization method. It runs by default.")
+    method <- "ECM"
+  }
+
   cl <- match.call()
   mf <- match.call(expand.dots = FALSE)
 
@@ -113,23 +118,25 @@ EMSS <- function(response, selection, data, method="ECM",
 
   x <- model.matrix(mt1, mf1, contrasts.arg = NULL, xlev = NULL)
   w <- model.matrix(mt2, mf2, contrasts.arg = NULL, xlev = NULL)
-
+  if(any(is.na(x)==TRUE)){
+    message("Warning: There is NA data in the observed characters of the response data.")
+  }
   x.name <- names(as.data.frame(x))
   w.name <- names(as.data.frame(w))
 
-  x<- t(x)
-  w<- t(w)
+  x <- t(x)
+  w <- t(w)
 
   N <- length(y2)
 
-  obserindex<-which(y2>0)
-  N1<-length(obserindex) ; N2<-N-N1
-  xy1obser<-x[,obserindex]
-  xy1miss<-x[,-obserindex]
+  obserindex <- which(y2>0)
+  N1 <- length(obserindex) ; N2<-N-N1
+  xy1obser <- x[,obserindex]
+  xy1miss <- x[,-obserindex]
   x <- cbind(xy1obser,xy1miss )
   #put all wi that yi1(where yi2>0) observed in front
-  wy1obser<-w[,obserindex]
-  wy1miss<-w[,-obserindex]
+  wy1obser <- w[,obserindex]
+  wy1miss <- w[,-obserindex]
   w <- cbind(wy1obser,wy1miss)
   largX <- t(x); largW <- t(w)
 
@@ -144,14 +151,14 @@ EMSS <- function(response, selection, data, method="ECM",
   u <- c(rep(1,N1),rep(0,N2))
   udiag <- diag(u)
 
-  p <- dim(x)[1] 
-  q <- dim(w)[1] 
+  p <- dim(x)[1]
+  q <- dim(w)[1]
 
   #-------------------------------------------------------------------------------------------------
   #estimate by two-step method------------------------------------------------------
   #-------------------------------------------------------------------------------------------------
   # to get initial values for ECM algorithm
-  if(is.null(initial.param)){ # changed 08/25 by Jun
+  if(is.null(initial.param)){
     twostepsele <- selection( y2 ~ largW[,-1], y1 ~ largX[,-1], data =
                                 as.data.frame(cbind(y1,y2,largX[,-1],largW[,-1])), method = "2step" )
     #initial values from two step---------------------------------------------------
@@ -159,344 +166,59 @@ EMSS <- function(response, selection, data, method="ECM",
     betakp1 <- matrix(twostepsele$coefficients[(q+1):(p+q)],ncol=1)
     sigmakp1 <- as.vector(twostepsele$coefficients[p+q+2])
     rhokp1 <- as.vector(twostepsele$coefficients[p+q+3])
-    ##note
-    #here the parameters location,e.g. [1:3], should be set in building R package
   }
 
-  else { # changed 13/04/2020 by Jun
-    if(length(initial.param) != p+q+2) stop("The length of the initial parameters has to be same as the parameters")
+  else {     if(length(initial.param) != p+q+2) stop("The length of the initial parameters has to be same as the parameters")
     betakp1 <- matrix(initial.param[1:p], ncol = 1)
     gammakp1 <- matrix(initial.param[(p+1):(p+q)], ncol = 1)
     sigmakp1 <- as.vector(initial.param[p+q+1])
     rhokp1 <- as.vector(initial.param[p+q+2])
   }
 
-  rhokp1[which(rhokp1>1)] <- 0.9 ##if initial value of rho is larger than 1, set it to 0.9
+  rhokp1[which(abs(rhokp1)>1)] <- 0.9 ##if initial value of rho is larger than 1, set it to 0.9
   # we need to give the warning or the description if rho is bigger than 0.9
   psikp1 <- sigmakp1^2*(1-rhokp1^2)
   psistarkp1 <- log(sigmakp1^2*(1-rhokp1^2))
   rhostarkp1 <- sigmakp1*rhokp1
+
   #-------------------------------------------------------------------------------------------------
   #ECM algorithom---------------------------------------------------------------------------------
   #-------------------------------------------------------------------------------------------------
 
   if(method=="ECM"){
-    err<-1
-    while(err>eps){
-
-      betak<-betakp1;gammak<-gammakp1;sigmak<-as.vector(sigmakp1)
-      rhok<-as.vector(rhokp1); psik<-as.vector(psikp1)
-
-      #E step moments-------------------------------------------------------------------------
-      #yi1 observed  crossprod t(wy1obser)%*%gammakt(xy1obser)%*%betak
-      mui21k<- crossprod(wy1obser,gammak)+rhok*(y1obser-crossprod(xy1obser,betak))/sigmak
-      #lambda function
-      mu21rho<-mui21k/sqrt(1-rhok^2)
-      denomina<-pnorm(mu21rho)
-      denomina[which(denomina==0),1]<-pnorm(-29)
-      lambdamu21rho<-dnorm(mu21rho)/denomina
-
-      alpha2ok<-mui21k+sqrt(1-rhok^2)*lambdamu21rho
-      v2ok<-1-rhok^2+mui21k^2+mui21k*sqrt(1-rhok^2)*lambdamu21rho
-
-      #yi1 missing
-      mui1k<-crossprod(xy1miss,betak)#t(xy1miss)%*%betak
-      mui2k<-crossprod(wy1miss,gammak) #t(wy1miss)%*%gammak
-      #lambda function 
-      denomina2<-pnorm(-mui2k)
-      denomina2[which(denomina2==0),1]<-pnorm(-29)
-      lambdammui2<-dnorm(-mui2k)/denomina2
-      rhostark<-rhok*sigmak
-
-      alpha1mk<-mui1k-rhostark*lambdammui2
-      alpha2mk<-mui2k-lambdammui2
-      v1mk<-mui1k^2+sigmak^2-rhostark*lambdammui2*(2*mui1k-rhostark*mui2k)
-      v2mk<-1+mui2k^2-mui2k*lambdammui2
-      alpha12mk<-mui1k*(mui2k-lambdammui2)+rhostark
-
-
-      #CM step update parameters---------------------------------------------------------------
-      #update beta(k)-------------------------------------------------------------------------
-      #calculate the term in {} firstly
-      #t(largX)%*%largW%*%gammak
-      betakp1par<-crossprod(largX,largW)%*%gammak-xy1obser%*%alpha2ok-xy1miss%*% alpha2mk
-      #solve(t(largX)%*%largX)%*%( rhostark*betakp1par+xy1obser%*%y1obser+xy1miss%*%alpha1mk )
-      betakp1<-solve(crossprod(largX,largX), rhostark*betakp1par+xy1obser%*%y1obser+xy1miss%*%alpha1mk )
-
-      #update gamama(k)-----------------------------------------------------------------------
-      #calculate the term in {} firstly
-      gammakp1par<-crossprod(largW,largX)%*%betakp1-wy1obser%*%y1obser-wy1miss%*%alpha1mk
-      #solve(t(largW)%*%largW)%*%( rhostark*gammakp1par/(psik+rhostark^2)
-      #        +wy1obser%*%alpha2ok+wy1miss%*%alpha2mk )
-      gammakp1<-solve(crossprod(largW), (rhostark*gammakp1par/(psik+rhostark^2)
-                                            +wy1obser%*%alpha2ok+wy1miss%*%alpha2mk) )
-
-      #update psi(k)----------------------------------------------------------------------
-      #calcualte circled1
-      #circled10<-t(y1obser-t(xy1obser)%*%betakp1 )%*%( y1obser-t(xy1obser)%*%betakp1 )
-      circled10<-crossprod(y1obser-crossprod(xy1obser,betakp1),(y1obser-crossprod(xy1obser,betakp1) ) )
-      
-      sumpar11<-sum(v1mk-2*crossprod(xy1miss,betakp1)*alpha1mk
-                    +crossprod(xy1miss,betakp1)*(crossprod(xy1miss,betakp1)) )
-      circled1<-circled10+sumpar11
-
-      #calculate circled2
-      #t(wy1obser)%*%gammakp1
-      sumterm21<-sum(v2ok-2*crossprod(wy1obser,gammakp1)*alpha2ok)
-      sumterm22<-sum(v2mk-2*crossprod(wy1miss,gammakp1)*alpha2mk )
-      #circled2<-t(gammakp1)%*%t(largW)%*%largW%*%gammakp1+ sumterm21+ sumterm22
-      circled2<-crossprod(gammakp1,crossprod(largW))%*%gammakp1+ sumterm21+ sumterm22
-      
-      #calculate circled3
-      sumterm31<-sum(y1obser*alpha2ok-crossprod(wy1obser,gammakp1)*y1obser
-                     -crossprod(xy1obser,betakp1)*alpha2ok )
-
-      sumterm32<-sum(alpha12mk-crossprod(wy1miss,gammakp1)*alpha1mk
-                     -crossprod(xy1miss,betakp1)*alpha2mk)
-      #circled3<-t(betakp1)%*%t(largX)%*%largW%*%gammakp1+sumterm31+sumterm32
-      circled3<-crossprod(betakp1,crossprod(largX,largW) )%*%gammakp1+sumterm31+sumterm32
-      
-      #update psi
-      psikp1<- (circled1+rhostark^2*circled2-2*rhostark*circled3)/N
-
-      #update rhostar(k)----------------------------------------------------------------------
-      rhostarkp1<-circled3/circled2
-
-      #calculate sigma and rho by psi and rhostar
-      sigmakp1<-as.vector( sqrt( psikp1+rhostarkp1^2 ) )
-      rhokp1<- rhostarkp1/sigmakp1
-
-      err<-sum(abs(betak-betakp1),abs(gammak-gammakp1),abs(sigmak-sigmakp1),abs(rhok-rhokp1) )
-    } # estimation ended
-
-
+    est_result = ECM.fit(betakp1, gammakp1, sigmakp1, rhokp1,
+                         psikp1, psistarkp1, rhostarkp1,
+                         xy1obser, wy1obser, y1obser, xy1miss, wy1miss, y1miss,
+                         largX, largW, N, eps, err=100)
   }
   else if(method=="ECMnr"){
-    err2<-1
-    while(err2>eps ){
-
-      betak<-betakp1;gammak<-gammakp1;sigmak<-as.vector(sigmakp1)
-      rhok<-as.vector(rhokp1); psistark<-as.vector(psistarkp1)
-
-      #E step moments-------------------------------------------------------------------------
-      #yi1 observed
-      mui21k <- crossprod(wy1obser,gammak)+rhok*(y1obser-crossprod(xy1obser,betak))/sigmak
-      #lambda function
-      mu21rho <- mui21k/sqrt(1-rhok^2)
-      denomina <- pnorm(mu21rho)
-      denomina[which(denomina==0),1]<-pnorm(-29)
-      lambdamu21rho <- dnorm(mu21rho)/denomina
-
-      alpha2ok <- mui21k+sqrt(1-rhok^2)*lambdamu21rho
-      v2ok <- 1-rhok^2+mui21k^2+mui21k*sqrt(1-rhok^2)*lambdamu21rho
-
-      #yi1 missing
-      mui1k<-crossprod(xy1miss,betak)
-      mui2k<-crossprod(wy1miss,gammak)
-      denomina2<-pnorm(-mui2k)
-      denomina2[which(denomina2==0),1]<-pnorm(-29)
-      lambdammui2<-dnorm(-mui2k)/denomina2
-      rhostark<-rhok*sigmak
-
-      alpha1mk<-mui1k-rhostark*lambdammui2
-      alpha2mk<-mui2k-lambdammui2
-      v1mk<-mui1k^2+sigmak^2-rhostark*lambdammui2*(2*mui1k-rhostark*mui2k)
-      v2mk<-1+mui2k^2-mui2k*lambdammui2
-      alpha12mk<-mui1k*(mui2k-lambdammui2)+rhostark
-
-
-      #M step update parameters---------------------------------------------------------------
-      #update beta(k)-------------------------------------------------------------------------
-      #calculate the term in {} firstly
-      betakp1par<-crossprod(largX,largW)%*%gammak-xy1obser%*%alpha2ok-xy1miss%*% alpha2mk
-      betakp1<-solve(crossprod(largX),( rhostark*betakp1par+xy1obser%*%y1obser+xy1miss%*%alpha1mk ) )
-
-      #update gamama(k)-----------------------------------------------------------------------
-      #calculate the term in {} firstly
-      gammakp1par<-crossprod(largW,largX)%*%betakp1-wy1obser%*%y1obser-wy1miss%*%alpha1mk
-      gammakp1<-solve(crossprod(largW),( rhostark*gammakp1par/(exp(psistark)+rhostark^2)
-                                            +wy1obser%*%alpha2ok+wy1miss%*%alpha2mk ) )
-
-      #update psistar(k)----------------------------------------------------------------------
-      #calcualte circled1
-      circled10<-crossprod(y1obser-crossprod(xy1obser,betakp1), (y1obser-crossprod(xy1obser,betakp1)) )
-      sumpar11<-sum(v1mk-2*crossprod(xy1miss,betakp1)*alpha1mk
-                    +crossprod(xy1miss,betakp1)*crossprod(xy1miss,betakp1) )
-      circled1<-circled10+sumpar11
-
-      #calculate circled2
-      sumterm21<-sum(v2ok-2*crossprod(wy1obser,gammakp1)*alpha2ok)
-      sumterm22<-sum(v2mk-2*crossprod(wy1miss,gammakp1)*alpha2mk )
-      circled2<-crossprod(gammakp1,crossprod(largW))%*%gammakp1+ sumterm21+ sumterm22
-
-      #calculate circled3
-      sumterm31<-sum(y1obser*alpha2ok-crossprod(wy1obser,gammakp1)*y1obser
-                     -crossprod(xy1obser,betakp1)*alpha2ok )
-
-      sumterm32<-sum(alpha12mk-crossprod(wy1miss,gammakp1)*alpha1mk
-                     -crossprod(xy1miss,betakp1)*alpha2mk)
-      circled3<-crossprod(betakp1,crossprod(largX,largW))%*%gammakp1+sumterm31+sumterm32
-
-      #update psistar
-      psik<-exp(psistark)
-      commterm<- -N*psik+circled1+rhostark^2*circled2-2*rhostark*circled3
-      #first derivative of psistar in Q function
-      Qpartial<-commterm/(2*psik)
-      #second derivatice of  psistar in Q function
-      Qparpartial<- -commterm/(2*psik)-N/2
-
-      psistarkp1<-psistark-Qparpartial^(-1)*Qpartial
-
-      #update rhostar(k)----------------------------------------------------------------------
-      rhostarkp1<-circled3/circled2
-
-      sigmakp1<-as.vector( sqrt( exp(psistarkp1)+rhostarkp1^2 ) )
-      rhokp1<- rhostarkp1/sigmakp1
-
-      err2<-sum(abs(betak-betakp1),abs(gammak-gammakp1),abs(sigmak-sigmakp1),abs(rhok-rhokp1) )
-    }
-
+    est_result = ECMnr.fit(betakp1, gammakp1, sigmakp1, rhokp1,
+                           psikp1, psistarkp1, rhostarkp1,
+                           xy1obser, wy1obser, y1obser, xy1miss, wy1miss, y1miss,
+                           largX, largW, N, eps, err=100)
   }
   else if(method=="ECME"){
-    err3<-1
-    while(err3>eps ){
-    #E-step---------------------------------------------------------------
-    gammak<-gammakp1; betak<-betakp1; psik<-psikp1; rhostark<-rhostarkp1
-    sigmak<-sigmakp1; rhok<- rhokp1 # rhostark/sigmak
-
-    #parameters in lemma 1
-    A<- -crossprod(w,gammak)
-    xi<-rhok*(y1-crossprod(x,betak))/sigmak
-    sigmainTN<-sqrt(1-rhok^2)
-    #(xi-A)/sigma
-    ximAdisigma<- (xi-A)/sigmainTN
-    #denomina part in EY and VY
-    denomina<-pnorm(ximAdisigma)
-    denomina[which(denomina==0),1]<-pnorm(-29)
-
-    #(dnorm((xi-A)/sigma))/denomian
-    parterm<-( dnorm(ximAdisigma) )/denomina
-
-    alphak<-EY<-xi+ parterm*sigmainTN
-    VY<-( 1-ximAdisigma*parterm -parterm^2)*sigmainTN^2
-    deltak<-VY+(EY)^2
-
-    #M-step-------------------------------------------------------------------------------------
-    #update psik--------------------------------------------------------------------------------
-
-    #    psikp1<-as.vector(t(u)%*%( (y1-t(x)%*%betak)^2
-    # -2*rhostark*(y1-t(x)%*%betak)*alphak+(rhostark)^2*deltak ) )/N1
-
-    psikp1<-as.vector(crossprod(u,( (y1-crossprod(x,betak))^2
-                               -2*rhostark*(y1-crossprod(x,betak))*alphak+(rhostark)^2*deltak ) ) )/N1
-
-    #update rhostark----------------------------------------------------------------------------
-    rhostarkp1<- as.vector(crossprod(y1-crossprod(x,betak),udiag)%*%alphak/(crossprod(u,deltak) ))
-
-    #update betak--------------------------------------------------------------------------------
-    betakp1<- solve( x%*%diag(u)%*%t(x),( x%*%udiag%*%(y1-rhostarkp1*alphak) ))
-
-    #update gammak------------------------------------------------------------------------------
-    sigmakp1<-as.vector(sqrt( psikp1+rhostarkp1^2 ));rhokp1<-as.vector(rhostarkp1/sigmakp1)
-    #Newton-Raphson
-    Sterm<- (sigmakp1*crossprod(w,gammak)+rhokp1*(y1-crossprod(x,betakp1) ) )/sqrt(psikp1)
-    #pdfDcdfS=dnorm(Sterm)/pnorm(Sterm)
-    pdfDcdfS<-dnorm(Sterm)/pnorm(Sterm)
-    #pnorm/cnorm for -t(w)%*%gammak
-    pdfDcdfmwg<-dnorm(-crossprod(w,gammak)) /pnorm(-crossprod(w,gammak))
-    PartiallogL<-w%*%( sigmakp1/sqrt(psikp1)*udiag%*%pdfDcdfS+diag(u-1)%*%pdfDcdfmwg )
-    ParparlogL<- w%*%diag(as.vector(-sigmakp1^2*u*(Sterm*pdfDcdfS+pdfDcdfS^2)/psikp1
-                                    +(1-u)*( (crossprod(w,gammakp1))*pdfDcdfmwg-pdfDcdfmwg^2) ) )%*%t(w)
-    gammakp1<- gammak-solve(ParparlogL,PartiallogL)
-
-    err3<-sum(abs(betakp1-betak),abs(gammakp1-gammak),abs(sigmakp1-sigmak),abs(rhokp1-rhok) )
+    est_result = ECME.fit(betakp1, gammakp1, sigmakp1, rhokp1,
+                          psikp1, psistarkp1, rhostarkp1,
+                          xy1obser, wy1obser, y1obser, xy1miss, wy1miss, y1miss,
+                          largX, largW, w, y1, x, u, N1, udiag, eps, err=100)
   }
-}
 
-  betaest <- as.matrix(betakp1)
-  gammaest <- as.matrix(gammakp1)
-  sigmaest <- drop(sigmakp1)
-  rhoest <- drop(rhokp1)
-
-
+  betaest <- as.matrix(est_result$betakp1)
+  gammaest <- as.matrix(est_result$gammakp1)
+  sigmaest <- drop(est_result$sigmakp1)
+  rhoest <- drop(est_result$rhokp1)
 
   ### Q value---------------------------------------------------------------------------------
-
-
   if(method == "ECM" | method == "ECMnr"){
-    psiest<-sigmaest^2*(1-rhoest^2)
-    rhostarest<-rhoest*sigmaest
-    #parameters arise from expectation---------------------------------------------
-    #yi1 observed
-    mui21k<-crossprod(wy1obser,gammaest)+rhoest*(y1obser-crossprod(xy1obser,betaest))/sigmaest
-    #lambda function
-    mu21rho<-mui21k/sqrt(1-rhoest^2)
-    denomina<-pnorm(mu21rho)
-    denomina[which(denomina==0),1]<-pnorm(-29)
-    lambdamu21rho<-dnorm(mu21rho)/denomina
-
-    alpha2ok<-mui21k+sqrt(1-rhoest^2)*lambdamu21rho
-    v2ok<-1-rhoest^2+mui21k^2+mui21k*sqrt(1-rhoest^2)*lambdamu21rho
-
-    #yi1 missing
-    mui1k<-crossprod(xy1miss,betaest)
-    mui2k<-crossprod(wy1miss,gammaest)
-    #lambda function
-    lambdammui2<-dnorm(-mui2k)/pnorm(-mui2k)
-
-    alpha1mk<-mui1k-rhostarest*lambdammui2
-    alpha2mk<-mui2k-lambdammui2
-    v1mk<-mui1k^2+sigmaest^2-rhostarest*lambdammui2*(2*mui1k-rhostarest*mui2k)
-    v2mk<-1+mui2k^2-mui2k*lambdammui2
-    alpha12mk<-mui1k*(mui2k-lambdammui2)+rhostarest
-    #parameters arise from expectation end---------------------------------------------
-
-    ECMQfun1<- -N*log(2*pi)-N*log(psiest)/2
-
-    ECMQfun21<- crossprod( (y1obser-crossprod(xy1obser,betaest) ),(y1obser-crossprod(xy1obser,betaest)) )
-    ECMQfun22<- sum(v1mk-2*alpha1mk*crossprod(xy1miss,betaest) +crossprod(xy1miss,betaest)*(crossprod(xy1miss,betaest) ) )
-    ECMQfun2<- -(ECMQfun21+ECMQfun22)/(2*psiest)
-
-    ECMQfun31<- sum(v2ok-2*alpha2ok*crossprod(wy1obser,gammaest)+crossprod(wy1obser,gammaest)*(crossprod(wy1obser,gammaest)) )
-    ECMQfun32<- sum(v2mk-2*alpha2mk*crossprod(wy1miss,gammaest) +crossprod(wy1miss,gammaest)*(crossprod(wy1miss,gammaest) ) )
-    ECMQfun3<- -(1+rhostarest^2/psiest)/2*(ECMQfun31+ECMQfun32)
-
-    ECMQfun41<- sum(y1obser*alpha2ok-y1obser*(crossprod(wy1obser,gammaest) )-alpha2ok*(crossprod(xy1obser,betaest) )
-                    +crossprod(xy1obser,betaest)*(crossprod(wy1obser,gammaest) ) )
-    ECMQfun42<- sum(alpha12mk-alpha1mk*(crossprod(wy1miss,gammaest) )-alpha2mk*(crossprod(xy1miss,betaest) )
-                    +crossprod(xy1miss,betaest)*(crossprod(wy1miss,gammaest) ) )
-    ECMQfun4<- rhostarest/psiest*(ECMQfun41+ECMQfun42)
-
-    Qfun.val<- sum(ECMQfun1,ECMQfun2,ECMQfun3,ECMQfun4)
+    Qfun.val = Q_ECM(betaest, gammaest, sigmaest, rhoest,
+                  xy1obser, wy1obser, y1obser,
+                  xy1miss, wy1miss, y1miss, N)
   } else if (method == "ECME") {
-    psiest<-sigmaest^2*(1-rhoest^2)
-    rhostarest<-rhoest*sigmaest
-
-    #parameters in lemma 1
-    A<- -crossprod(w,gammaest)
-    xi<-rhoest*(y1-crossprod(x,betaest) )/sigmaest
-    sigmaestinTN<-sqrt(1-rhoest^2)
-    #(xi-A)/sigmaest
-    ximAdisigmaest<-(xi-A)/sigmaestinTN
-    #denomina part in EY and VY
-    denomina<-pnorm(ximAdisigmaest)
-    denomina[which(denomina==0),1]<-pnorm(-29)
-
-    #(dnorm((xi-A)/sigmaest))/denomian
-    parterm<-( dnorm(ximAdisigmaest) )/denomina
-
-    alpha<-EY<-xi+ parterm*sigmaestinTN
-    VY<-( 1-ximAdisigmaest*parterm -parterm^2)*sigmaestinTN^2
-    delta<-VY+(EY)^2
-
-    ECMEQfun1<- -1/2*sum(u)*log(2*pi*psiest)
-    ECMEQfun21<- (crossprod(u,(y1-crossprod(x,betaest) ) ) )^2
-    ECMEQfun22<-  -2*crossprod(u,(rhostarest*(y1-crossprod(x,betaest) )*alpha) )
-    ECMEQfun23<- crossprod(u,delta) *rhostarest^2
-    ECMEQfun2<-  -1/(2*psiest)*sum(ECMEQfun21,ECMEQfun22,ECMEQfun23 )
-    ECMEQfun3<-  -sum(u)*log(2*pi)/2-crossprod(u,delta)/2+crossprod((1-u),pnorm(-t(w)%*%gammaest,log.p=TRUE) ) 
-
-    Qfun.val<- sum(ECMEQfun1,ECMEQfun2,ECMEQfun3)
+    Qfun.val = Q_ECME(betaest, gammaest, sigmaest, rhoest,
+                      xy1obser, wy1obser, y1obser,
+                      xy1miss, wy1miss, y1miss,
+                      y1, x, w, u)
   }
 
   ### Hessian matrix--------------------------------------------------------------------------
@@ -587,15 +309,15 @@ EMSS <- function(response, selection, data, method="ECM",
 
 
   ECMsele <- list( call = cl,
-                   estimate_response = betakp1,
-                   estimate_selection = gammakp1,
-                   estimate_sigma = sigmaest, 
-                   estimate_rho = rhoest, 
-                   hessian_mat = HessianMa, 
-                   resp_leng = p, 
-                   select_leng = q, 
-                   Q_value = Qfun.val 
-                   )
+                   estimate_response = est_result$betakp1,
+                   estimate_selection = est_result$gammakp1,
+                   estimate_sigma = sigmaest,
+                   estimate_rho = rhoest,
+                   hessian_mat = HessianMa,
+                   resp_leng = p,
+                   select_leng = q,
+                   Q_value = Qfun.val
+  )
 
   ECMsele$names_response <- c( x.name )
   ECMsele$names_selection <- c( w.name )
@@ -603,6 +325,357 @@ EMSS <- function(response, selection, data, method="ECM",
   class(ECMsele)<- "EMSS"
   ECMsele
 }
+
+ECM.fit <- function(betakp1, gammakp1, sigmakp1, rhokp1,
+                    psikp1, psistarkp1, rhostarkp1,
+                    xy1obser, wy1obser, y1obser,
+                    xy1miss, wy1miss, y1miss,
+                    largX, largW, N, eps, err=100
+){
+  while(err>eps){
+
+    betak<-betakp1;gammak<-gammakp1;sigmak<-as.vector(sigmakp1)
+    rhok<-as.vector(rhokp1); psik<-as.vector(psikp1)
+
+    #E step moments-------------------------------------------------------------------------
+    #yi1 observed  crossprod t(wy1obser)%*%gammakt(xy1obser)%*%betak
+    mui21k<- crossprod(wy1obser,gammak)+rhok*(y1obser-crossprod(xy1obser,betak))/sigmak
+    #lambda function
+    mu21rho<-mui21k/sqrt(1-rhok^2)
+    denomina<-pnorm(mu21rho)
+    denomina[which(denomina==0),1]<-pnorm(-29)
+    lambdamu21rho<-dnorm(mu21rho)/denomina
+
+    #yi1 observed  equation 6-------------------
+    alpha2ok<-mui21k+sqrt(1-rhok^2)*lambdamu21rho
+    v2ok<-1-rhok^2+mui21k^2+mui21k*sqrt(1-rhok^2)*lambdamu21rho
+
+    #yi1 missing
+    mui1k<-crossprod(xy1miss,betak)#t(xy1miss)%*%betak
+    mui2k<-crossprod(wy1miss,gammak) #t(wy1miss)%*%gammak
+    #lambda function
+    denomina2<-pnorm(-mui2k)
+    denomina2[which(denomina2==0),1]<-pnorm(-29)
+    lambdammui2<-dnorm(-mui2k)/denomina2
+    rhostark<-rhok*sigmak
+
+    #yi1 missing equations 1-5-------------------
+    alpha1mk<-mui1k-rhostark*lambdammui2
+    alpha2mk<-mui2k-lambdammui2
+    v1mk<-mui1k^2+sigmak^2-rhostark*lambdammui2*(2*mui1k-rhostark*mui2k)
+    v2mk<-1+mui2k^2-mui2k*lambdammui2
+    alpha12mk<-mui1k*(mui2k-lambdammui2)+rhostark
+
+
+    #CM step update parameters---------------------------------------------------------------
+    #update beta(k)-------------------------------------------------------------------------
+    #calculate the term in {} firstly
+    #t(largX)%*%largW%*%gammak
+    betakp1par<-crossprod(largX,largW)%*%gammak-xy1obser%*%alpha2ok-xy1miss%*% alpha2mk
+    betakp1<-solve(crossprod(largX,largX), rhostark*betakp1par+xy1obser%*%y1obser+xy1miss%*%alpha1mk )
+
+    #update gamama(k)-----------------------------------------------------------------------
+    #calculate the term in {} firstly
+    gammakp1par<-crossprod(largW,largX)%*%betakp1-wy1obser%*%y1obser-wy1miss%*%alpha1mk
+
+    gammakp1<-solve(crossprod(largW), (rhostark*gammakp1par/(psik+rhostark^2)
+                                       +wy1obser%*%alpha2ok+wy1miss%*%alpha2mk) )
+
+    #update psi(k)----------------------------------------------------------------------
+    #calcualte circled1
+    #circled10<-t(y1obser-t(xy1obser)%*%betakp1 )%*%( y1obser-t(xy1obser)%*%betakp1 )
+    circled10<-crossprod(y1obser-crossprod(xy1obser,betakp1),(y1obser-crossprod(xy1obser,betakp1) ) )
+    #reusable function--------
+    xy1misMulbetakp1<-crossprod(xy1miss,betakp1)
+    sumpar11<-sum(v1mk-2*xy1misMulbetakp1*alpha1mk
+                  +xy1misMulbetakp1*(xy1misMulbetakp1) )
+    circled1<-circled10+sumpar11
+
+    #calculate circled2
+    #t(wy1obser)%*%gammakp1
+    sumterm21<-sum(v2ok-2*crossprod(wy1obser,gammakp1)*alpha2ok)
+    sumterm22<-sum(v2mk-2*crossprod(wy1miss,gammakp1)*alpha2mk )
+    #circled2<-t(gammakp1)%*%t(largW)%*%largW%*%gammakp1+ sumterm21+ sumterm22
+    circled2<-crossprod(gammakp1,crossprod(largW))%*%gammakp1+ sumterm21+ sumterm22
+
+    #calculate circled3
+    sumterm31<-sum(y1obser*alpha2ok-crossprod(wy1obser,gammakp1)*y1obser
+                   -crossprod(xy1obser,betakp1)*alpha2ok )
+
+    sumterm32<-sum(alpha12mk-crossprod(wy1miss,gammakp1)*alpha1mk
+                   -xy1misMulbetakp1*alpha2mk)
+    #circled3<-t(betakp1)%*%t(largX)%*%largW%*%gammakp1+sumterm31+sumterm32
+    circled3<-crossprod(betakp1,crossprod(largX,largW) )%*%gammakp1+sumterm31+sumterm32
+
+    #update psi
+    psikp1<- (circled1+rhostark^2*circled2-2*rhostark*circled3)/N
+
+    #update rhostar(k)----------------------------------------------------------------------
+    rhostarkp1<-circled3/circled2
+
+    #calculate sigma and rho by psi and rhostar
+    sigmakp1<-as.vector( sqrt( psikp1+rhostarkp1^2 ) )
+    rhokp1<- rhostarkp1/sigmakp1
+
+    err<-sum(abs(betak-betakp1),abs(gammak-gammakp1),abs(sigmak-sigmakp1),abs(rhok-rhokp1) )
+  }
+  est_params = list(betakp1 = betakp1,
+                    gammakp1 = gammakp1,
+                    sigmakp1 = sigmakp1,
+                    rhokp1 = rhokp1)
+  est_params
+}
+
+ECMnr.fit <- function(betakp1, gammakp1, sigmakp1, rhokp1,
+                      psikp1, psistarkp1, rhostarkp1,
+                      xy1obser, wy1obser, y1obser,
+                      xy1miss, wy1miss, y1miss,
+                      largX, largW, N, eps, err=100){
+  while(err>eps){
+    betak<-betakp1;gammak<-gammakp1;sigmak<-as.vector(sigmakp1)
+    rhok<-as.vector(rhokp1); psistark<-as.vector(psistarkp1)
+
+    #E step moments-------------------------------------------------------------------------
+    #yi1 observed
+    mui21k <- crossprod(wy1obser,gammak)+rhok*(y1obser-crossprod(xy1obser,betak))/sigmak
+    #lambda function
+    mu21rho <- mui21k/sqrt(1-rhok^2)
+    denomina <- pnorm(mu21rho)
+    denomina[which(denomina==0),1]<-pnorm(-29)
+    lambdamu21rho <- dnorm(mu21rho)/denomina
+
+    #yi1 observed  equation 6-------------------
+    alpha2ok <- mui21k+sqrt(1-rhok^2)*lambdamu21rho
+    v2ok <- 1-rhok^2+mui21k^2+mui21k*sqrt(1-rhok^2)*lambdamu21rho
+
+    #yi1 missing
+    mui1k<-crossprod(xy1miss,betak)
+    mui2k<-crossprod(wy1miss,gammak)
+    denomina2<-pnorm(-mui2k)
+    denomina2[which(denomina2==0),1]<-pnorm(-29)
+    lambdammui2<-dnorm(-mui2k)/denomina2
+    rhostark<-rhok*sigmak
+
+    #yi1 missing equations 1-5----------------
+    alpha1mk<-mui1k-rhostark*lambdammui2
+    alpha2mk<-mui2k-lambdammui2
+    v1mk<-mui1k^2+sigmak^2-rhostark*lambdammui2*(2*mui1k-rhostark*mui2k)
+    v2mk<-1+mui2k^2-mui2k*lambdammui2
+    alpha12mk<-mui1k*(mui2k-lambdammui2)+rhostark
+
+
+    #M step update parameters---------------------------------------------------------------
+    #update beta(k)-------------------------------------------------------------------------
+    #calculate the term in {} firstly
+    betakp1par<-crossprod(largX,largW)%*%gammak-xy1obser%*%alpha2ok-xy1miss%*% alpha2mk
+    betakp1<-solve(crossprod(largX),( rhostark*betakp1par+xy1obser%*%y1obser+xy1miss%*%alpha1mk ) )
+
+    #update gamama(k)-----------------------------------------------------------------------
+    #calculate the term in {} firstly
+    gammakp1par<-crossprod(largW,largX)%*%betakp1-wy1obser%*%y1obser-wy1miss%*%alpha1mk
+    gammakp1<-solve(crossprod(largW),( rhostark*gammakp1par/(exp(psistark)+rhostark^2)
+                                       +wy1obser%*%alpha2ok+wy1miss%*%alpha2mk ) )
+
+    #update psistar(k)----------------------------------------------------------------------
+    #calcualte circled1
+    #reusable function-----------------------------
+    xy1misMulbetakp1<-crossprod(xy1miss,betakp1)
+
+    circled10<-crossprod(y1obser-crossprod(xy1obser,betakp1), (y1obser-crossprod(xy1obser,betakp1)) )
+    sumpar11<-sum(v1mk-2*xy1misMulbetakp1*alpha1mk
+                  +xy1misMulbetakp1*xy1misMulbetakp1 )
+    circled1<-circled10+sumpar11
+
+    #calculate circled2
+    #reusable functions-----------------------------
+    wy1obMulgammakp1 <- crossprod(wy1obser,gammakp1)
+    wy1misMulgammakp1 <- crossprod(wy1miss,gammakp1)
+    sumterm21<-sum(v2ok-2*wy1obMulgammakp1*alpha2ok)
+    sumterm22<-sum(v2mk-2*wy1misMulgammakp1 *alpha2mk )
+    circled2<-crossprod(gammakp1,crossprod(largW))%*%gammakp1+ sumterm21+ sumterm22
+
+    #calculate circled3
+    sumterm31<-sum(y1obser*alpha2ok-wy1obMulgammakp1*y1obser
+                   -crossprod(xy1obser,betakp1)*alpha2ok )
+
+    sumterm32<-sum(alpha12mk-wy1misMulgammakp1 *alpha1mk
+                   -xy1misMulbetakp1*alpha2mk)
+    circled3<-crossprod(betakp1,crossprod(largX,largW))%*%gammakp1+sumterm31+sumterm32
+
+    #update psistar
+    psik<-exp(psistark)
+    commterm<- -N*psik+circled1+rhostark^2*circled2-2*rhostark*circled3
+    #first derivative of psistar in Q function
+    Qpartial<-commterm/(2*psik)
+    #second derivatice of  psistar in Q function
+    Qparpartial<- -commterm/(2*psik)-N/2
+
+    psistarkp1<-psistark-Qparpartial^(-1)*Qpartial
+
+    #update rhostar(k)----------------------------------------------------------------------
+    rhostarkp1<-circled3/circled2
+
+    sigmakp1<-as.vector( sqrt( exp(psistarkp1)+rhostarkp1^2 ) )
+    rhokp1<- rhostarkp1/sigmakp1
+
+    err<-sum(abs(betak-betakp1),abs(gammak-gammakp1),abs(sigmak-sigmakp1),abs(rhok-rhokp1) )
+  }
+  est_params = list(betakp1 = betakp1,
+                    gammakp1 = gammakp1,
+                    sigmakp1 = sigmakp1,
+                    rhokp1 = rhokp1)
+  est_params
+}
+
+ECME.fit <- function(betakp1, gammakp1, sigmakp1, rhokp1,
+                     psikp1, psistarkp1, rhostarkp1,
+                     xy1obser, wy1obser, y1obser,
+                     xy1miss, wy1miss, y1miss,
+                     largX, largW, w, y1, x, u,
+                     N1, udiag, eps, err=100){
+  while(err>eps ){
+    #E-step---------------------------------------------------------------
+    gammak<-gammakp1; betak<-betakp1; psik<-psikp1; rhostark<-rhostarkp1
+    sigmak<-sigmakp1; rhok<- rhokp1 # rhostark/sigmak
+
+    #parameters in lemma 1
+    A<- -crossprod(w,gammak)
+    xi<-rhok*(y1-crossprod(x,betak))/sigmak
+    sigmainTN<-sqrt(1-rhok^2)
+    #(xi-A)/sigma
+    ximAdisigma<- (xi-A)/sigmainTN
+    #denomina part in EY and VY
+    denomina<-pnorm(ximAdisigma)
+    denomina[which(denomina==0),1]<-pnorm(-29)
+
+    #(dnorm((xi-A)/sigma))/denomian
+    parterm<-( dnorm(ximAdisigma) )/denomina
+
+    alphak<-EY<-xi+ parterm*sigmainTN
+    VY<-( 1-ximAdisigma*parterm -parterm^2)*sigmainTN^2
+    deltak<-VY+(EY)^2
+
+    #M-step-------------------------------------------------------------------------------------
+    #update psik--------------------------------------------------------------------------------
+
+    psikp1<-as.vector(crossprod(u,( (y1-crossprod(x,betak))^2
+                                    -2*rhostark*(y1-crossprod(x,betak))*alphak+(rhostark)^2*deltak ) ) )/N1
+
+    #update rhostark----------------------------------------------------------------------------
+    rhostarkp1<- as.vector(crossprod(y1-crossprod(x,betak),udiag)%*%alphak/(crossprod(u,deltak) ))
+
+    #update betak--------------------------------------------------------------------------------
+    betakp1<- solve( x%*%diag(u)%*%t(x),( x%*%udiag%*%(y1-rhostarkp1*alphak) ))
+
+    #update gammak------------------------------------------------------------------------------
+    sigmakp1<-as.vector(sqrt( psikp1+rhostarkp1^2 ));rhokp1<-as.vector(rhostarkp1/sigmakp1)
+    #Newton-Raphson
+    Sterm<- (sigmakp1*crossprod(w,gammak)+rhokp1*(y1-crossprod(x,betakp1) ) )/sqrt(psikp1)
+    #pdfDcdfS=dnorm(Sterm)/pnorm(Sterm)
+    pdfDcdfS<-dnorm(Sterm)/pnorm(Sterm)
+    #pnorm/cnorm for -t(w)%*%gammak
+    pdfDcdfmwg<-dnorm(-crossprod(w,gammak)) /pnorm(-crossprod(w,gammak))
+    PartiallogL<-w%*%( sigmakp1/sqrt(psikp1)*udiag%*%pdfDcdfS+diag(u-1)%*%pdfDcdfmwg )
+    ParparlogL<- w%*%diag(as.vector(-sigmakp1^2*u*(Sterm*pdfDcdfS+pdfDcdfS^2)/psikp1
+                                    +(1-u)*( (crossprod(w,gammakp1))*pdfDcdfmwg-pdfDcdfmwg^2) ) )%*%t(w)
+    gammakp1<- gammak-solve(ParparlogL,PartiallogL)
+
+    err<-sum(abs(betakp1-betak),abs(gammakp1-gammak),abs(sigmakp1-sigmak),abs(rhokp1-rhok) )
+  }
+  est_params = list(betakp1 = betakp1,
+                    gammakp1 = gammakp1,
+                    sigmakp1 = sigmakp1,
+                    rhokp1 = rhokp1)
+  est_params
+}
+
+Q_ECM <- function(betaest, gammaest, sigmaest, rhoest,
+                  xy1obser, wy1obser, y1obser,
+                  xy1miss, wy1miss, y1miss, N
+){
+  psiest<-sigmaest^2*(1-rhoest^2)
+  rhostarest<-rhoest*sigmaest
+  #parameters arise from expectation---------------------------------------------
+  #yi1 observed
+  mui21k<-crossprod(wy1obser,gammaest)+rhoest*(y1obser-crossprod(xy1obser,betaest))/sigmaest
+  #lambda function
+  mu21rho<-mui21k/sqrt(1-rhoest^2)
+  denomina<-pnorm(mu21rho)
+  denomina[which(denomina==0),1]<-pnorm(-29)
+  lambdamu21rho<-dnorm(mu21rho)/denomina
+
+  alpha2ok<-mui21k+sqrt(1-rhoest^2)*lambdamu21rho
+  v2ok<-1-rhoest^2+mui21k^2+mui21k*sqrt(1-rhoest^2)*lambdamu21rho
+
+  #yi1 missing
+  mui1k<-crossprod(xy1miss,betaest)
+  mui2k<-crossprod(wy1miss,gammaest)
+  #lambda function
+  lambdammui2<-dnorm(-mui2k)/pnorm(-mui2k)
+
+  alpha1mk<-mui1k-rhostarest*lambdammui2
+  alpha2mk<-mui2k-lambdammui2
+  v1mk<-mui1k^2+sigmaest^2-rhostarest*lambdammui2*(2*mui1k-rhostarest*mui2k)
+  v2mk<-1+mui2k^2-mui2k*lambdammui2
+  alpha12mk<-mui1k*(mui2k-lambdammui2)+rhostarest
+  #parameters arise from expectation end---------------------------------------------
+
+  ECMQfun1<- -N*log(2*pi)-N*log(psiest)/2
+
+  ECMQfun21<- crossprod( (y1obser-crossprod(xy1obser,betaest) ),(y1obser-crossprod(xy1obser,betaest)) )
+  ECMQfun22<- sum(v1mk-2*alpha1mk*crossprod(xy1miss,betaest) +crossprod(xy1miss,betaest)*(crossprod(xy1miss,betaest) ) )
+  ECMQfun2<- -(ECMQfun21+ECMQfun22)/(2*psiest)
+
+  ECMQfun31<- sum(v2ok-2*alpha2ok*crossprod(wy1obser,gammaest)+crossprod(wy1obser,gammaest)*(crossprod(wy1obser,gammaest)) )
+  ECMQfun32<- sum(v2mk-2*alpha2mk*crossprod(wy1miss,gammaest) +crossprod(wy1miss,gammaest)*(crossprod(wy1miss,gammaest) ) )
+  ECMQfun3<- -(1+rhostarest^2/psiest)/2*(ECMQfun31+ECMQfun32)
+
+  ECMQfun41<- sum(y1obser*alpha2ok-y1obser*(crossprod(wy1obser,gammaest) )-alpha2ok*(crossprod(xy1obser,betaest) )
+                  +crossprod(xy1obser,betaest)*(crossprod(wy1obser,gammaest) ) )
+  ECMQfun42<- sum(alpha12mk-alpha1mk*(crossprod(wy1miss,gammaest) )-alpha2mk*(crossprod(xy1miss,betaest) )
+                  +crossprod(xy1miss,betaest)*(crossprod(wy1miss,gammaest) ) )
+  ECMQfun4<- rhostarest/psiest*(ECMQfun41+ECMQfun42)
+
+  Q.val <- sum(ECMQfun1,ECMQfun2,ECMQfun3,ECMQfun4)
+  Q.val
+}
+
+Q_ECME <- function(betaest, gammaest, sigmaest, rhoest,
+                   xy1obser, wy1obser, y1obser,
+                   xy1miss, wy1miss, y1miss,
+                   y1, x, w, u
+){
+  psiest<-sigmaest^2*(1-rhoest^2)
+  rhostarest<-rhoest*sigmaest
+
+  #parameters in lemma 1
+  A<- -crossprod(w,gammaest)
+  xi<-rhoest*(y1-crossprod(x,betaest) )/sigmaest
+  sigmaestinTN<-sqrt(1-rhoest^2)
+  #(xi-A)/sigmaest
+  ximAdisigmaest<-(xi-A)/sigmaestinTN
+  #denomina part in EY and VY
+  denomina<-pnorm(ximAdisigmaest)
+  denomina[which(denomina==0),1]<-pnorm(-29)
+
+  #(dnorm((xi-A)/sigmaest))/denomian
+  parterm<-( dnorm(ximAdisigmaest) )/denomina
+
+  alpha<-EY<-xi+ parterm*sigmaestinTN
+  VY<-( 1-ximAdisigmaest*parterm -parterm^2)*sigmaestinTN^2
+  delta<-VY+(EY)^2
+
+  ECMEQfun1<- -1/2*sum(u)*log(2*pi*psiest)
+  ECMEQfun21<- (crossprod(u,(y1-crossprod(x,betaest) ) ) )^2
+  ECMEQfun22<-  -2*crossprod(u,(rhostarest*(y1-crossprod(x,betaest) )*alpha) )
+  ECMEQfun23<- crossprod(u,delta) *rhostarest^2
+  ECMEQfun2<-  -1/(2*psiest)*sum(ECMEQfun21,ECMEQfun22,ECMEQfun23 )
+  ECMEQfun3<-  -sum(u)*log(2*pi)/2-crossprod(u,delta)/2+crossprod((1-u),pnorm(-t(w)%*%gammaest,log.p=TRUE) )
+
+  Q.val <- sum(ECMEQfun1,ECMEQfun2,ECMEQfun3)
+  Q.val
+}
+
 
 #' @method print EMSS
 #' @export
@@ -626,6 +699,10 @@ print.EMSS <- function(x, digits = max(3, getOption("digits") - 3), ...)
 #'
 #' \code{summary} method for a class "EMSS".
 #' @param object an object of class "EMSS" made by the function \code{EMSS}.
+#' @param tidy a logical value stands for whether the summary format is in tidy format or not, if \code{TRUE}, the summary function will return a tidy format.
+#' @param conf.int a logical value stands for whether the confidence interval is included in the tiny format or not. If \code{TRUE}, confidence intervals are included.
+#' If \code{tidy = FALSE}, this parameter does not control anything.
+#' @param conf.level a numeric value between 0 and 1 for controlling the significance level of confidence interval; default value is 0.95.
 #' @param ... not used, but exists because of the compatibility.
 #' @param x an object of class "summary.EMSS".
 #' @param digits a numeric number of significant digits.
@@ -661,33 +738,62 @@ print.EMSS <- function(x, digits = max(3, getOption("digits") - 3), ...)
 #' summary(ex3)
 #'
 #' @export
-summary.EMSS <- function(object, ...)
+summary.EMSS <- function(object, tidy = FALSE,
+                         conf.int = FALSE,
+                         conf.level = 0.95, ...)
 {
-  p <- object$resp_leng 
-  q <- object$select_leng 
-  std.err.mat <- sqrt(diag(vcov.EMSS(object))) 
-  std_error_response <- std.err.mat[1:p] 
+  p <- object$resp_leng
+  q <- object$select_leng
+  std.err.mat <- sqrt(diag(vcov.EMSS(object)))
+  std_error_response <- std.err.mat[1:p]
   std_error_selection <- std.err.mat[(p+1):(p+q)]
-  std_error_sigma <- std.err.mat[p+q+1] 
-  std_error_rho <- std.err.mat[p+q+2] 
-  z.value_response <- as.vector(object$estimate_response)/std_error_response 
-  z.value_selection <- as.vector(object$estimate_selection)/std_error_selection 
-  z.value_sigma <- as.vector(object$estimate_sigma)/std_error_sigma 
-  z.value_rho <- as.vector(object$estimate_rho)/std_error_rho 
+  std_error_sigma <- std.err.mat[p+q+1]
+  std_error_rho <- std.err.mat[p+q+2]
+  z.value_response <- as.vector(object$estimate_response)/std_error_response
+  z.value_selection <- as.vector(object$estimate_selection)/std_error_selection
+  z.value_sigma <- as.vector(object$estimate_sigma)/std_error_sigma
+  z.value_rho <- as.vector(object$estimate_rho)/std_error_rho
+
+  out <- data.frame( estimate = object$estimate_response, std.error = std_error_response,
+                     z.value = z.value_response, pval = 2*pnorm(abs(z.value_response), lower.tail = F) )
+  sel <- data.frame( estimate = object$estimate_selection, std.error = std_error_selection,
+                     z.value = z.value_selection, pval = 2*pnorm(abs(z.value_selection), lower.tail = F) )
+  sigma <- data.frame( estimate = object$estimate_sigma, std.error = std_error_sigma,
+                       z.value = z.value_sigma, pval = 2*pnorm(abs(z.value_sigma), lower.tail = F)  )
+  rho <- data.frame( estimate = object$estimate_rho, std.error = std_error_rho,
+                     z.value = z.value_rho, pval = 2*pnorm(abs(z.value_rho), lower.tail = F)  )
+  if(tidy){
+    row.names(out) <- paste0(row.names(out), "_outcome")
+    row.names(sel) <- paste0(row.names(sel), "_selection")
+    tidy_form <- rbind(out, sel, sigma, rho)
+    if(conf.int){
+      conf <- confint.EMSS(object, level = conf.level)
+      confresult <- rbind(conf$response, conf$selection, conf$sigma, conf$rho)
+      tidy_form <- cbind(tidy_form, confresult)
+    }
+  } else {
+    tidy_form <- NULL
+  }
+
   result <- list( call = object$call,
                   estimate_response = object$estimate_response,
                   estimate_selection = object$estimate_selection,
                   estimate_sigma = object$estimate_sigma,
                   estimate_rho = object$estimate_rho,
                   Q_value = object$Q_value,
-                  std_error_response = std_error_response, 
-                  std_error_selection = std_error_selection, 
-                  std_error_sigma = std_error_sigma, 
-                  std_error_rho = std_error_rho, 
+                  std_error_response = std_error_response,
+                  std_error_selection = std_error_selection,
+                  std_error_sigma = std_error_sigma,
+                  std_error_rho = std_error_rho,
                   z.value_response = z.value_response,
                   z.value_selection = z.value_selection,
                   z.value_sigma = z.value_sigma,
-                  z.value_rho = z.value_rho
+                  z.value_rho = z.value_rho,
+                  out = out,
+                  sel = sel,
+                  sigma = sigma,
+                  rho = rho,
+                  tidy_form = tidy_form
   )
 
   result$names_response <- object$names_response
@@ -704,56 +810,55 @@ summary.EMSS <- function(object, ...)
 #' @export
 print.summary.EMSS <- function(x, digits = max(3, getOption("digits") - 3), ...)
 {
-  cat("\nCall:\n")
-  print(x$call)
-  cat("\nQ-Value:", x$Q_value, "\n")
-  cat("\nResponse equation:\n")
-  out <- data.frame( estimate = x$estimate_response, std.error = x$std_error_response,
-                     z.value = x$z.value_response, pval = 2*pnorm(abs(x$z.value_response), lower.tail = F) )
-  Signif.out <- symnum(out$pval, corr = FALSE, na = FALSE,
-                       cutpoints = c(0, 0.001, 0.01, 0.05, 0.1, 1),
-                       symbols = c("***", "**", "*", ".", " "))
-  out <- cbind(out, format(Signif.out))
-  row.names(out) <- x$names_response ; colnames(out) <- c("Estimate", "Std. Error", "Z Value", "Pr(>|Z|)", "")
-  print(out, digits = digits)
-
-  cat("\nSelection equation:\n")
-  sel <- data.frame( estimate = x$estimate_selection, std.error = x$std_error_selection,
-                     z.value = x$z.value_selection, pval = 2*pnorm(abs(x$z.value_selection), lower.tail = F) )
-  Signif.sel <- symnum(sel$pval, corr = FALSE, na = FALSE,
-                       cutpoints = c(0, 0.001, 0.01, 0.05, 0.1, 1),
-                       symbols = c("***", "**", "*", ".", " "))
-  sel <- cbind(sel, format(Signif.sel))
-  row.names(sel) <- x$names_selection ; colnames(sel) <- c("Estimate", "Std. Error", "Z Value", "Pr(>|Z|)", "")
-  print(sel, digits = digits)
-
-  cat("---\n")
-
-
-  cat("\nSigma:\n")
-  sigma <- data.frame( estimate = x$estimate_sigma, std.error = x$std_error_sigma,
-                       z.value = x$z.value_sigma, pval = 2*pnorm(abs(x$z.value_sigma), lower.tail = F)  )
-  Signif.sigma <- symnum(sigma$pval, corr = FALSE, na = FALSE,
+  if(is.null(x$tidy_form)){
+    cat("\nCall:\n")
+    print(x$call)
+    cat("\nQ-Value:", x$Q_value, "\n")
+    cat("\nResponse equation:\n")
+    out <- x$out
+    Signif.out <- symnum(out$pval, corr = FALSE, na = FALSE,
                          cutpoints = c(0, 0.001, 0.01, 0.05, 0.1, 1),
                          symbols = c("***", "**", "*", ".", " "))
-  sigma <- cbind(sigma, format(Signif.sigma))
-  row.names(sigma) <- "sigma" ; colnames(sigma) <- c("Estimate", "Std. Error","Z Value", "Pr(>|Z|)", "")
-  print(sigma, digits = digits)
+    out <- cbind(out, format(Signif.out))
+    row.names(out) <- x$names_response ; colnames(out) <- c("Estimate", "Std. Error", "Z Value", "Pr(>|Z|)", "")
+    print(out, digits = digits)
 
-  cat("\nRho:\n")
-  rho <- data.frame( estimate = x$estimate_rho, std.error = x$std_error_rho,
-                       z.value = x$z.value_rho, pval = 2*pnorm(abs(x$z.value_rho), lower.tail = F)  )
-  Signif.rho <- symnum(rho$pval, corr = FALSE, na = FALSE,
+    cat("\nSelection equation:\n")
+    sel <- x$sel
+    Signif.sel <- symnum(sel$pval, corr = FALSE, na = FALSE,
                          cutpoints = c(0, 0.001, 0.01, 0.05, 0.1, 1),
                          symbols = c("***", "**", "*", ".", " "))
-  rho <- cbind(rho, format(Signif.rho))
-  row.names(rho) <- "rho" ; colnames(rho) <- c("Estimate", "Std. Error","Z Value", "Pr(>|Z|)", "")
-  print(rho, digits = digits)
+    sel <- cbind(sel, format(Signif.sel))
+    row.names(sel) <- x$names_selection ; colnames(sel) <- c("Estimate", "Std. Error", "Z Value", "Pr(>|Z|)", "")
+    print(sel, digits = digits)
 
-  cat("---\n")
-  cat("Signif. codes:", 0, "'***'", 0.001, "'**'", 0.01, "'*'", 0.05, "'.'", 0.1, "' '", 1, "\n\n")
+    cat("---\n")
 
+
+    cat("\nSigma:\n")
+    sigma <- x$sigma
+    Signif.sigma <- symnum(sigma$pval, corr = FALSE, na = FALSE,
+                           cutpoints = c(0, 0.001, 0.01, 0.05, 0.1, 1),
+                           symbols = c("***", "**", "*", ".", " "))
+    sigma <- cbind(sigma, format(Signif.sigma))
+    row.names(sigma) <- "sigma" ; colnames(sigma) <- c("Estimate", "Std. Error","Z Value", "Pr(>|Z|)", "")
+    print(sigma, digits = digits)
+
+    cat("\nRho:\n")
+    rho <- x$rho
+    Signif.rho <- symnum(rho$pval, corr = FALSE, na = FALSE,
+                         cutpoints = c(0, 0.001, 0.01, 0.05, 0.1, 1),
+                         symbols = c("***", "**", "*", ".", " "))
+    rho <- cbind(rho, format(Signif.rho))
+    row.names(rho) <- "rho" ; colnames(rho) <- c("Estimate", "Std. Error","Z Value", "Pr(>|Z|)", "")
+    print(rho, digits = digits)
+
+    cat("---\n")
+    cat("Signif. codes:", 0, "'***'", 0.001, "'**'", 0.01, "'*'", 0.05, "'.'", 0.1, "' '", 1, "\n\n")
+  } else {
+    print(x$tidy_form)
   }
+}
 
 #' Getting Coefficients of EM type Sample Selection Model Fits
 #'
@@ -798,29 +903,29 @@ print.summary.EMSS <- function(x, digits = max(3, getOption("digits") - 3), ...)
 #' @export
 coef.EMSS <- function(object, only = NULL, ...)
 {
-    if (is.null(only)){
-      names_response <- object$names_response
-      names_selection <- object$names_selection
-      result <- list( response = drop(object$estimate_response),
-                      selection = drop(object$estimate_selection),
-                      sigma = drop(object$estimate_sigma), 
-                      rho = drop(object$estimate_rho) 
-      )
-      names(result$response) <- names_response
-      names(result$selection) <- names_selection
-    } else if (only=="response"){
-      names_response <- object$names_response
-      result <- list( response = drop(object$estimate_response)
-                     )
-      names(result$response) <- names_response
-    } else if (only=="selection"){
-      names_selection <- object$names_selection
-      result <- list( selection <- drop(object$estimate_selection)
-      )
-      names(result$selection) <- names_selection
-    } else {
-      stop("'only' has to be defined properly")
-    }
+  if (is.null(only)){
+    names_response <- object$names_response
+    names_selection <- object$names_selection
+    result <- list( response = drop(object$estimate_response),
+                    selection = drop(object$estimate_selection),
+                    sigma = drop(object$estimate_sigma),
+                    rho = drop(object$estimate_rho)
+    )
+    names(result$response) <- names_response
+    names(result$selection) <- names_selection
+  } else if (only=="response"){
+    names_response <- object$names_response
+    result <- list( response = drop(object$estimate_response)
+    )
+    names(result$response) <- names_response
+  } else if (only=="selection"){
+    names_selection <- object$names_selection
+    result <- list( selection <- drop(object$estimate_selection)
+    )
+    names(result$selection) <- names_selection
+  } else {
+    stop("'only' has to be defined properly")
+  }
 
   result
 }
@@ -880,13 +985,13 @@ confint.EMSS<- function(object, parm, level = 0.95, ...)
   ci_select <- array( NA, dim = c(length(cf_select), 2), dimnames = list(pnames_select, pct) )
   ci_sigma <- array( NA, dim = c(1, 2), dimnames = list("sigma", pct) )
   ci_rho <- array( NA, dim = c(1, 2), dimnames = list("rho", pct) )
-  p <- object$resp_leng 
-  q <- object$select_leng 
-  std.err.mat <- sqrt(diag(vcov.EMSS(object))) 
-  std_error_response <- std.err.mat[1:p] 
-  std_error_selection <- std.err.mat[(p+1):(p+q)] 
-  std_error_sigma <- std.err.mat[p+q+1] 
-  std_error_rho <- std.err.mat[p+q+2] 
+  p <- object$resp_leng
+  q <- object$select_leng
+  std.err.mat <- sqrt(diag(vcov.EMSS(object)))
+  std_error_response <- std.err.mat[1:p]
+  std_error_selection <- std.err.mat[(p+1):(p+q)]
+  std_error_sigma <- std.err.mat[p+q+1]
+  std_error_rho <- std.err.mat[p+q+2]
   ses_resp <- std_error_response
   ses_select <- std_error_selection
   ses_sigma <- std_error_sigma

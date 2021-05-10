@@ -5,12 +5,19 @@
 \alias{print.summary.EMSS}
 \title{Summarizing EM type Sample Selection Model Fits}
 \usage{
-\method{summary}{EMSS}(object, ...)
+\method{summary}{EMSS}(object, tidy = FALSE, conf.int = FALSE, conf.level = 0.95, ...)
 
 \method{print}{summary.EMSS}(x, digits = max(3, getOption("digits") - 3), ...)
 }
 \arguments{
 \item{object}{an object of class "EMSS" made by the function \code{EMSS}.}
+
+\item{tidy}{a logical value stands for whether the summary format is in tidy format or not, if \code{TRUE}, the summary function will return a tidy format.}
+
+\item{conf.int}{a logical value stands for whether the confidence interval is included in the tiny format or not. If \code{TRUE}, confidence intervals are included.
+If \code{tidy = FALSE}, this parameter does not control anything.}
+
+\item{conf.level}{a numeric value between 0 and 1 for controlling the significance level of confidence interval; default value is 0.95.}
 
 \item{...}{not used, but exists because of the compatibility.}
 
