@@ -1,7 +1,7 @@
-c5fd09b1b2d4938d40baa00b7f7eae55 *DESCRIPTION
-82982d8d020ccc73d6be4f14fa4902c1 *NAMESPACE
-b07be0907d07b834d43c0fd9c934125c *NEWS.md
-ce431dff54af30a42fbcc3ee1ef08cd9 *R/EMSS.R
+517a5d2fa9d9625d8f551f26b6f9db0e *DESCRIPTION
+56a1cfdbd965168f41fab9d78fa94a2e *NAMESPACE
+2a5a614c8105617189c617cb5bd5ac53 *NEWS.md
+3a779d814252bbefceb56e7743fafb4c *R/EMSS.R
 758f6d367af94ec475012d41893782c9 *data/Smoke.rda
 cdecd0088d2b03f9655fe006ed96af5c *man/EMSS.Rd
 3225cbfc59846a2c8d0e1540dd717379 *man/Smoke.Rd
@@ -9,5 +9,5 @@ cdecd0088d2b03f9655fe006ed96af5c *man/EMSS.Rd
 bbb1e2b57cf137438b2c6bbc30f2b7f8 *man/confint.EMSS.Rd
 87a5b67b9f224aceaa6391a5287c33e2 *man/summary.EMSS.Rd
 a8e0b187f9885b9bd000169b8af39f60 *man/vcov.EMSS.Rd
-65063c7b0bfb9f239759ae6f771cc58c *tests/testthat.R
-483035b52777b066ecafa7ec4325736a *tests/testthat/test-summary.R
+674d0cdde6c7a2b176cc9f2320a4ab63 *tests/testthat.R
+2fbc70019a4afe370a783b6634e7f7c5 *tests/testthat/test-summary.R
